@@ -23,20 +23,21 @@ def check_gateway() -> None:
         url = f"https://localhost:4002/v1/api/tickle"
         resp = requests.get(url=url, verify=False)
         resp.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        raise ValueError(f"gateway not ready : {e}")
-    except urllib.error.URLError as e:
-        raise ValueError(f"gateway not ready : {e}")
-
-    try:
+        # logging.info(f"Gateway tickle response : {resp.status_code}")
+        # logging.info(f"Gateway tickle response : {resp.json}")
+       
         data = resp.json()
-        logging.debug(f"Gateway request ata : {data}")
+        # logging.debug(f"Gateway request ata : {data}")
         established = data.get("established")
         connected = data.get("connected")
         authenticated = data.get("authenticated")
         if not None in (established, connected, authenticated):
             logging.info(f"gateway ready : {data}")
             return True
+    except requests.exceptions.RequestException as e:
+            raise ValueError(f"gateway not ready : {e}")
+    except urllib.error.URLError as e:
+            raise ValueError(f"gateway not ready : {e}")
     except Exception as e:
         raise ValueError(f"gateway not ready : {e}")
     return False
