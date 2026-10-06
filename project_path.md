@@ -45,6 +45,7 @@ pip list
 ## install packages - example
 <!-- ktf -->
 ```bash <!-- markdownlint-disable-line code-block-style -->
+pip install logging
 pip install requests
 pip install urllib3
 ```
