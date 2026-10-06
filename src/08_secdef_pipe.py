@@ -69,7 +69,7 @@ def secdef_search(symbol: str) -> dict:
     if not months:
         raise ValueError(f"No option months for {symbol}")
 
-    return {"underConid": under_conid, "months": months}
+    return {"underConid": under_conid, "symbol": symbol, "months": months}
 
 
 def main():
