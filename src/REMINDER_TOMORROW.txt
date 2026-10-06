@@ -1,0 +1,12 @@
+# REMINDER FOR TOMORROW 15:30 MEZ
+# 
+# Start fresh with TWS/ib_insync pipeline (Socket API, Port 7496) – volle Daten inkl. Volume & Open Interest
+#
+# AUF REMOTE-SERVER (192.168.178.75):
+# TWS → File → Global Configuration → API → Settings
+# ☑ Enable ActiveX and Socket Clients
+# ☑ Port: 7496
+# ☑ Read-Only API (optional, für Paper Trading)
+#
+# DANN LOKAL AUSFÜHREN:
+python3 /home/hermes/docker-script-runner/src/tws_pipeline.py CROX 0 SMART
