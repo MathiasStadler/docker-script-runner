@@ -14,12 +14,21 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def check_gateway() -> None:
-    # /v1/api/tickle
-    url = f"https://localhost:4002/v1/api/tickle"
+
+    #method var resp
+    resp = False
+
     try:
+        # /v1/api/tickle
+        url = f"https://localhost:4002/v1/api/tickle"
         resp = requests.get(url=url, verify=False)
         resp.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        raise ValueError(f"gateway not ready : {e}")
+    except urllib.error.URLError as e:
+        raise ValueError(f"gateway not ready : {e}")
 
+    try:
         data = resp.json()
         logging.debug(f"Gateway request ata : {data}")
         established = data.get("established")
@@ -28,8 +37,6 @@ def check_gateway() -> None:
         if not None in (established, connected, authenticated):
             logging.info(f"gateway ready : {data}")
             return True
-    except requests.exceptions.RequestException as e:
-        raise ValueError(f"gateway not ready : {e}")
     except Exception as e:
         raise ValueError(f"gateway not ready : {e}")
     return False
