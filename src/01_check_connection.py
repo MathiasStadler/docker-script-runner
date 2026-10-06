@@ -5,23 +5,35 @@
 import logging
 import urllib
 import requests
+import urllib3
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s : %(lineno)d - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s : %(lineno)d - %(message)s"
+)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
+def check_gateway() -> None:
+    # /v1/api/tickle
+    url = f"https://localhost:4002/v1/api/tickle"
+    try:
+        resp = requests.get(url=url, verify=False)
+        resp.raise_for_status()
 
-
-def check_gateway():
-        # /v1/api/tickle
-        url = f'https://localhost:4002/v1/api/tickle'
-        try:
-            search_request = requests.get(url=url, verify=False)
-            search_request.raise_for_status()
-            data = search_request.json()
-            data = data.get('data', {})
+        data = resp.json()
+        logging.debug(f"Gateway request ata : {data}")
+        established = data.get("established")
+        connected = data.get("connected")
+        authenticated = data.get("authenticated")
+        if not None in (established, connected, authenticated):
             logging.info(f"gateway ready : {data}")
-        except Exception as e:
-            raise ValueError(f"gateway not ready : {e}")
+            return True
+    except requests.exceptions.RequestException as e:
+        raise ValueError(f"gateway not ready : {e}")
+    except Exception as e:
+        raise ValueError(f"gateway not ready : {e}")
+    return False
+
 
 if __name__ == "__main__":
-    check_gateway();
+    check_gateway()
