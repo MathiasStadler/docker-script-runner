@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-# ib_insync Pipeline (TWS Socket only): Symbol -> gefilterte PUT-Optionen mit Delta -0.50 bis -0.10 + Greeks + Volume
+# Pure TWS Pipeline: nur ib_insync, Strikes via qualifyContracts filtern
 # Usage: python3 tws_pipeline.py <SYMBOL> [MONTH_INDEX] [EXCHANGE]
 
 import sys
 import csv
 import logging
 from datetime import datetime
-from ib_insync import IB, Stock, Option, util
+from ib_insync import IB, Stock, Option
 
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s : %(message)s')
 logger = logging.getLogger(__name__)
@@ -15,25 +15,21 @@ HEADERS = [
     "conid", "symbol", "right", "expiration", "strike", "multiplier",
     "bid", "ask", "last", "close", "volume",
     "delta", "gamma", "theta", "vega", "impliedVol",
-    "bidSize", "askSize", "high", "low", "openPrice"
+    "bidSize", "askSize", "high", "low", "openPrice", "openInterest"
 ]
 
 
 def connect_ib(client_id=1):
-    """Connect to TWS/Gateway."""
     ib = IB()
     ib.connect('127.0.0.1', 7496, clientId=client_id, timeout=15, readonly=True)
-    # Paper account: use delayed-frozen data (type 4)
-    ib.reqMarketDataType(4)
+    ib.reqMarketDataType(4)  # delayed-frozen for paper
     return ib
 
 
 def get_stock_and_chain(ib, symbol, month_index=0, exchange='SMART'):
-    """Get stock data and option chain for specific expiration."""
     stock = Stock(symbol, exchange, 'USD')
     ib.qualifyContracts(stock)
     
-    # Get option chain parameters
     chains = ib.reqSecDefOptParams(stock.symbol, '', stock.secType, stock.conId)
     chain = [c for c in chains if c.exchange == exchange]
     if not chain:
@@ -44,70 +40,52 @@ def get_stock_and_chain(ib, symbol, month_index=0, exchange='SMART'):
         raise ValueError(f"Month index {month_index} out of range (max {len(chain.expirations)-1})")
     
     expiration = chain.expirations[month_index]
-    logger.info(f"Chain: {chain.tradingClass}, Expiration: {expiration}, Strikes: {len(chain.strikes)}")
-    
+    logger.info(f"Chain: {chain.tradingClass}, Expiration: {expiration}, All strikes: {len(chain.strikes)}")
     return stock, chain, expiration
 
 
 def get_stock_data(ib, stock):
-    """Get underlying stock price."""
     ticker = ib.reqMktData(stock, '', False, False)
     ib.sleep(2)
-    
     data = {
-        'conid': stock.conId,
-        'symbol': stock.symbol,
-        'bid': ticker.bid,
-        'ask': ticker.ask,
-        'last': ticker.last,
-        'close': ticker.close,
-        'volume': ticker.volume,
-        'high': ticker.high,
-        'low': ticker.low,
+        'conid': stock.conId, 'symbol': stock.symbol,
+        'bid': ticker.bid, 'ask': ticker.ask, 'last': ticker.last,
+        'close': ticker.close, 'volume': ticker.volume,
+        'high': ticker.high, 'low': ticker.low,
     }
     ib.cancelMktData(stock)
     return data
 
 
 def get_valid_put_options(ib, symbol, expiration, chain, exchange='SMART'):
-    """Create put options and filter to only valid (qualified) ones."""
+    """Create ALL put options, qualify, keep only valid (conId > 0)."""
     options = []
     for strike in chain.strikes:
         opt = Option(symbol, expiration, strike, 'P', exchange, tradingClass=chain.tradingClass, multiplier=chain.multiplier)
         options.append(opt)
     
     ib.qualifyContracts(*options)
-    # Filter out contracts that failed to qualify (conId=0 or no contract)
     valid = [o for o in options if o.conId and o.conId > 0]
     logger.info(f"Qualified {len(valid)} of {len(options)} put options for {expiration}")
     return valid
 
 
 def fetch_option_greeks(ib, options):
-    """Fetch market data and Greeks for all options."""
     results = []
     for opt in options:
         ticker = ib.reqMktData(opt, '', False, False)
-        ib.sleep(0.3)  # Small delay between requests
+        ib.sleep(0.5)
         
         greeks = ticker.modelGreeks
         row = {
-            'conid': opt.conId,
-            'symbol': opt.symbol,
-            'right': opt.right,
-            'expiration': opt.lastTradeDateOrContractMonth,
-            'strike': opt.strike,
+            'conid': opt.conId, 'symbol': opt.symbol, 'right': opt.right,
+            'expiration': opt.lastTradeDateOrContractMonth, 'strike': opt.strike,
             'multiplier': opt.multiplier,
-            'bid': ticker.bid,
-            'ask': ticker.ask,
-            'last': ticker.last,
-            'close': ticker.close,
-            'volume': ticker.volume,
-            'bidSize': ticker.bidSize,
-            'askSize': ticker.askSize,
-            'high': ticker.high,
-            'low': ticker.low,
-            'openPrice': ticker.open,
+            'bid': ticker.bid, 'ask': ticker.ask, 'last': ticker.last,
+            'close': ticker.close, 'volume': ticker.volume,
+            'bidSize': ticker.bidSize, 'askSize': ticker.askSize,
+            'high': ticker.high, 'low': ticker.low, 'openPrice': ticker.open,
+            'openInterest': getattr(ticker, 'putOpenInterest', None) or getattr(ticker, 'openInterest', None),
         }
         
         if greeks:
@@ -126,28 +104,16 @@ def fetch_option_greeks(ib, options):
 
 
 def filter_by_delta(rows, min_delta=-0.50, max_delta=-0.10):
-    """Filter puts by delta range."""
-    filtered = []
-    for r in rows:
-        if r['delta'] is not None:
-            if min_delta <= r['delta'] <= max_delta:
-                filtered.append(r)
+    filtered = [r for r in rows if r['delta'] is not None and min_delta <= r['delta'] <= max_delta]
     return filtered
 
 
 def write_csv(rows, filepath):
-    """Write results to CSV."""
     with open(filepath, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=HEADERS)
         writer.writeheader()
         for r in rows:
-            out_row = {}
-            for h in HEADERS:
-                val = r.get(h)
-                if isinstance(val, float):
-                    out_row[h] = f'{val:.6f}' if val != 0 else '0'
-                else:
-                    out_row[h] = val if val is not None else ''
+            out_row = {h: (f'{r[h]:.6f}' if isinstance(r.get(h), float) else (r[h] if r.get(h) is not None else '')) for h in HEADERS}
             writer.writerow(out_row)
 
 
@@ -163,44 +129,33 @@ def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_file = f"/home/hermes/docker-script-runner/src/tws_option_contracts_{symbol}_{timestamp}.csv"
     
-    logger.info(f"Starting pipeline for {symbol} (month_index={month_index}, exchange={exchange})")
+    logger.info(f"Starting TWS pipeline for {symbol} (month_index={month_index}, exchange={exchange})")
     
     ib = None
     try:
-        # 1. Connect to TWS
         ib = connect_ib()
         logger.info(f"Connected to TWS, server version: {ib.client.serverVersion()}")
         
-        # 2. Get stock and option chain
         stock, chain, expiration = get_stock_and_chain(ib, symbol, month_index, exchange)
-        
-        # 3. Get stock price
         stock_data = get_stock_data(ib, stock)
         logger.info(f"Stock: {stock.symbol} @ {stock_data['last'] or stock_data['close']}")
         
-        # 4. Get valid PUT options
         options = get_valid_put_options(ib, symbol, expiration, chain, exchange)
+        logger.info(f"Fetching Greeks for {len(options)} options...")
         
-        # 5. Fetch Greeks via TWS
-        logger.info(f"Fetching market data and Greeks for {len(options)} options...")
         rows = fetch_option_greeks(ib, options)
-        
-        # 6. Filter by delta
         filtered = filter_by_delta(rows)
-        logger.info(f"Delta filter (-0.50 to -0.10): {len(filtered)} of {len(rows)} contracts")
+        logger.info(f"Delta filter (-0.50 to -0.10): {len(filtered)} of {len(rows)}")
         
-        # 7. Write CSV
         write_csv(filtered, csv_file)
         logger.info(f"CSV written: {csv_file}")
         
-        # Print summary
         print(f"\n=== RESULT: {len(filtered)} PUT options with delta -0.50 to -0.10 ===")
         print(f"File: {csv_file}")
         print(f"Underlying: {symbol} @ {stock_data['last'] or stock_data['close']}")
         print(f"Expiration: {expiration}")
-        print()
         for r in filtered:
-            print(f"  Strike {r['strike']}: delta={r['delta']:.4f}, bid={r['bid']}, ask={r['ask']}, vol={r['volume']}, iv={r['impliedVol']:.4f}")
+            print(f"  Strike {r['strike']}: delta={r['delta']:.4f}, bid={r['bid']}, ask={r['ask']}, vol={r['volume']}, OI={r.get('openInterest','N/A')}, iv={r['impliedVol']:.4f}")
         
     except Exception as e:
         logger.error(f"Pipeline failed: {e}")

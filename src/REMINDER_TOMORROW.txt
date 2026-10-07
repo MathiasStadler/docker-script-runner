@@ -8,5 +8,11 @@
 # ☑ Port: 7496
 # ☑ Read-Only API (optional, für Paper Trading)
 #
+# SSH TUNNEL AUFBAUEN:
+sshpass -p trapapa ssh -L 7496:localhost:7496 -N -f -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null trapapa@192.168.178.75
+#
 # DANN LOKAL AUSFÜHREN:
 python3 /home/hermes/docker-script-runner/src/tws_pipeline.py CROX 0 SMART
+#
+# HINWEIS: Client IDs (1-106) sind heute erschöpft. Bis morgen 15:30 sollten sie auf TWS-Seite timeouten.
+# Falls nicht: TWS neu starten oder anderen clientId in tws_pipeline.py connect_ib() verwenden.
