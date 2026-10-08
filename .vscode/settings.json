@@ -4,6 +4,7 @@
         "Conid",
         "docopt",
         "idna",
+        "insync",
         "pipreqs",
         "secdef",
         "urllib",
